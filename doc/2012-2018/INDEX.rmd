@@ -1,0 +1,257 @@
+---
+title: "Bio-informatica projecten 2012-2018"
+author: "Rutger Vos (@rvosa)"
+date: "27-3-2019"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  word_document: default
+---
+
+### Samenvatting
+
+> - Gemiddeld is de bioinformaticus op elk moment betrokken bij 8-10 source code projecten
+> - De omlooptijd per project is tussen de anderhalf en twee jaar
+> - De netto bijdrage aan een project is ongeveer 200-250 uur source code ontwikkeling
+> - Berekeningen op basis van 35 projecten tussen 2012-2018 (inclusief)
+
+### Data
+
+Om een indruk te krijgen van het werkproces van de bioinformaticus nemen we
+alle [source code repositories](https://en.wikipedia.org/wiki/Git) waar de 
+gebruiker [rvosa](http://github.com/rvosa) code aan heeft toegevoegd als bijdrage
+aan onderzoeks- en infrastructuurprojecten van 2012 tot 2018 inclusief, d.w.z.
+zeven jaar. In deze momentopname laten we de volgende projecten buiten 
+beschouwing:
+
+- repositories voor eigen, onafhankelijk onderzoek
+- repositories met lesmateriaal, bijvoorbeeld voor het vak Methods in 
+  Biodiversity Analysis of voor workshops
+- projecten waarvoor geen source code ontwikkeld hoefde te worden, en die dus
+  geen sporen hebben achter gelaten op GitHub (wat overigens vrijwel nooit
+  voorkomt)
+  
+Hier lezen we de [data](git_projects.tsv) in:
+
+```{r gitdata}
+library(lubridate, quietly = T)
+
+# Lees de tabel met projecten
+git.df <- read.table(
+  file = 'git_projects.tsv', 
+  header = T,
+  sep = "\t"
+)
+
+# De kolommen met First_commit en Last_commit zijn data in ISO-8601 format
+git.df$First_commit <- ymd(git.df$First_commit)
+git.df$Last_commit <- ymd(git.df$Last_commit)
+```
+
+Onderstaande tabel laat alle projecten zien, met de volgende kolommen:
+
+- *GitHub_project* - URL voor de project repository
+- *First_commit* - eerste bijdrage aan de repository door @rvosa
+- *Last_commit* - laatste bijdrage door @rvosa
+- *Output* - door het project gegenereerde output (pijltje rechtsboven)
+
+```{r weergave}
+# Weergave
+git.df
+```
+
+### Omlooptijd
+
+Wat is de verdeling van de omlooptijd van deze projecten? We rekenen dit van de 
+eerste tot de laatste _commit_ operatie waarin een wijziging aan de source code
+van het project is toegevoegd door @rvosa. Dat is dus een lage schatting omdat 
+projecten beginnen voor de eerste commit (planning, overleg) en vaak eindigen 
+ver na de laatste, bijvoorbeeld omdat er dan nog analyses worden gedraaid en 
+manuscripten worden geschreven.
+
+```{r duration}
+# Hier berekenen we de omlooptijd
+git.df$Duration <- vector( mode = "integer", length = nrow(git.df) )
+for ( row in 1:nrow(git.df) ) {
+  
+  # De omlooptijd is 'inclusief', dus + 1
+  git.df[row,'Duration'] <- 
+    ( git.df[row,'Last_commit'] - git.df[row,'First_commit'] ) + 1
+}
+
+# Bereken de summary statistics en maak een histogram
+duration.summ.stats <- summary(git.df$Duration)
+duration.summ.stats
+hist(
+  git.df$Duration, 
+  main = "Omlooptijd per project", 
+  ylab = "Aantal projecten", 
+  xlab = "Tijdsduur in kalenderdagen"
+)
+```
+
+De duur in kalenderdagen is dus tussen de anderhalf en twee jaar (mean/median). 
+Het kortste project had een omlooptijd van 20 dagen, het langste van 1964 dagen, 
+oftewel meer dan vijf jaar. De langst lopende projecten zijn die waarbij 
+infrastructuur is ontwikkeld die vervolgens moet worden onderhouden. De top 5 
+bestaat daardoor uit:
+
+1. [supersmart](http://www.supersmart-project.org) - pijplijn
+2. [wgs2ncbi](http://github.com/naturalis/wgs2ncbi) - Galaxy tool
+3. [monophylizer](http://monophylizer.naturalis.nl) - web service
+4. [HTS-barcode-checker](http://github.com/naturalis/HTS-barcode-checker) - Galaxy tool
+5. [imgpheno](http://plakvallen.naturalis.nl/) - web service
+
+### Gemiddelde bezetting
+
+Hoe veel projecten lopen er tegelijkertijd? We gaan hier van de eerste tot de 
+laatste dag in de data set en bekijken voor elke dag welke projecten er op dat 
+moment actief zijn, d.w.z. dat we voor dat project in de periode tussen de 
+eerste en de laatste commit zitten:
+
+```{r concurrency}
+# Datum van de allereerste activiteit
+start.date <- min(git.df$First_commit)
+
+# Datum van de allerlaatste activiteit
+end.date <- max(git.df$Last_commit)
+
+# Duur (in dagen) van eerste tot laatste
+range.date <- end.date - start.date
+
+# Vector met, van dag tot dag, de bezettingsgraad
+concurrency <- vector( mode = "integer", length = range.date[[1]])
+for ( i in 1:range.date[[1]] ) {
+  
+  # Bereken datum op dit punt in de loop
+  day.date <- start.date + i
+  
+  # Ga alle projecten langs
+  for ( row in 1:nrow(git.df) ) {
+    proj.interval <- interval(
+      git.df[row,'First_commit'],
+      git.df[row,'Last_commit']
+    )
+    if ( day.date %within% proj.interval ) {
+      concurrency[i] <- concurrency[i] + 1
+    }
+  }
+}
+concurrency.summ.stats <- summary(concurrency)
+concurrency.summ.stats
+hist(
+  concurrency, 
+  breaks = 5, 
+  xlab = "Aantal projecten tegelijkertijd", 
+  ylab = "Aantal dagen",
+  main = "Overlappende projecten"
+)
+```
+
+### Gemiddelde duur in uren per project
+
+Om op een tijdsduur in uren per project uit te komen nemen we de volgende 
+stappen, op basis van de eerder berekende 'duration' _D_
+
+1. kantoordagen _K_ = _D_ * 5/7 (maandag t/m vrijdag)
+2. werkdagen _W_ = _K_ * 240/260 (20 dagen verlof per jaar)
+3. bioinformatica dagen _B_ = _W_ * 7/10 (exclusief andere institutionele
+   activiteiten 20% en onderwijs 10%)
+4. per project _P_ = _B_ * 1/8.xx (gemiddelde bezettingsgraad zoals berekend)
+5. uren _U_ = _P_ * 8 (uur per dag)
+
+Voor de berekening in stap 3 beschouwen we als "Andere institutionele 
+activiteiten", een dag in de week, bijvoorbeeld:
+
+- deelname aan stuurgroepen (NBA, DL, RDM)
+- onderhoud infra exclusief source code ontwikkeling (TreeBASE, OpenStack, high-mem node)
+- overleg onderzoeksgroep, overleg andere interne gremia
+- aanvragen (mee)schrijven
+- interne rapportages
+
+We beschouwen als "Onderwijs", een halve dag in de week, bijvoorbeeld:
+
+- (gast)colleges voorbereiden en geven
+- overleg/begeleiding van stagiaires
+- verslagen nakijken
+- studentenpresentaties bijwonen
+
+```{r hours}
+git.df$Hours <- vector( mode = "double", length = nrow(git.df) )
+for ( row in 1:nrow(git.df) ) {
+  K <- git.df[row, 'Duration'] * (5/7)
+  W <- K * (240/260)
+  B <- W * (7/10)
+  P <- B * (1/concurrency.summ.stats[[4]])
+  U <- P * 8
+  git.df[row, 'Hours'] <- U
+  rm(K,W,B,P,U)
+}
+summary(git.df$Hours)
+hist(
+  git.df$Hours,
+  main = 'Netto uren per project',
+  sub = '(o.b.v. git commits, dus exclusief voorbereiding, analyse, rapportage)',
+  ylab = 'Aantal projecten',
+  xlab = 'Netto uren'
+)
+```
+
+### Conclusies / inzichten
+
+- 'Korte' projecten, zoals het 
+  [koppelen van Brahms data aan gedigitaliseerde herbariumsheets](https://github.com/naturalis/brahms-digi-webapp),
+  of het ontwikkelen van [Nepenthes fylogenieen](https://github.com/naturalis/nepenthes)
+  lopen langer door dan van tevoren door onderzoekers ingeschat. Dit vanwege
+  'nazorg', bijvoorbeeld in het meeschrijven aan manuscripten inclusief
+  revisies, of in het opnieuw uitvoeren van analyses met andere parameterisatie
+  of andere input data. *Gezien de in het verleden behaalde resultaten zijn 
+  door onderzoekers in de huidige ronde gemaakte inschattingen daarom 
+  waarschijnlijk te optimistisch.*
+- De status van 'lange' projecten - zijn deze afgerond? - wordt niet helder 
+  gecommuniceerd door de PI's en slepen dus voort. Voorbeelden zijn het
+  [tomatenproject](http://github.com/naturalis/tomatogenome) en de 
+  [exoomdata mensapen](http://github.com/naturalis/apexomes). In de huidige 
+  berekeningen is uitgegaan van de laatste bijdrage van @rvosa aan deze 
+  projecten en zijn deze dus per definitie 'af' - want er is altijd een meest
+  recente _commit_ - maar er is nog geen aanwijsbare output. Zonder externe 
+  output middels een publicatie waarbij alle data op publieke plekken zijn
+  gezet, hoopt de data onder embargo op, met de permanente mogelijkheid dat die 
+  dus weer vele jaren na dato moet worden opgegraven (voorbeeld van deze week: 
+  waar is de genome assembly voor _Gonioctena quinquepunctata_ die in 2014 op 
+  de T-7500 in het lab is uitgevoerd?) *Om zulke chronische ophoping te 
+  voorkomen moeten nieuwe aanvragen een duidelijk einde hebben voor wat betreft 
+  alle uitkomsten (inclusief research data, dus).*
+- Projecten die infrastructuur opleveren, zoals databases, Galaxy tools, of web
+  services, vereisen onderhoud. Gebruikers rapporteren bugs of verzoeken om 
+  extra functionaliteit; upgrades worden na verloop van tijd noodzakelijk,
+  bijvoorbeeld vanwege ICT security of nieuwe data releases. Hierdoor zijn deze 
+  projecten nooit 'af' (in principe van toepassing op Monophylizer, TreeBASE, 
+  WGS2NCBI, plakvallen). Als we iets bouwen puur om formeel aan de eisen van 
+  projecten te voldoen (zoals biovel-nbc) dan blijven deze resultaten 
+  [niet in de lucht](https://en.wikipedia.org/wiki/Software_rot).
+  *Bij de aanvraag van nieuwe, herbruikbare infrastructuur moet dus ook met 
+  onderhoud (of overdracht) rekening gehouden worden.*
+
+Gezien: 
+
+1. de gemiddelde omlooptijd per project (1,5-2 jaar), 
+2. de gemiddelde bezettingsgraad (8-10 projecten tegelijkertijd), 
+3. de beschikbare capaciteit (1,5FTE totaal), 
+4. de huidige projectenlijst (5 projecten voorgesteld per maart 2019), en
+5. de lopende projecten van @rvosa:
+   - publicatie [FormicID](http://github.com/naturalis/FormicID)
+   - publicatie [wgs2ncbi](http://github.com/naturalis/wgs2ncbi)
+   - afronding hosting [TreeBASE](http://treebase.org)   
+   - onderhoud, functionaliteit [plakvallen](http://plakvallen.naturalis.nl)
+   - onderhoud, updates [HTS-barcode-checker](http://github.com/naturalis/HTS-barcode-checker)
+
+Kunnen er nog 1-2 rondjes met CfP's gehouden worden via SWO3 in de komende
+kwartalen: we zitten qua expliciet geformuleerde en aangevraagde projecten 
+nog niet aan de gemiddelde capaciteit in vergelijking tot de afgelopen jaren. 
+Echter, als we op deze manier meer projecten gaan toevoegen dan moeten er ook 
+beslissingen worden genomen over de status van nog lopende onderzoeksprojecten, 
+met name de tomaten en de exoomdata, en de onderhoud van lopende 
+infrastructuurprojecten, bijvoorbeeld in relatie tot de eisen vanuit ICT qua
+upgrades.
